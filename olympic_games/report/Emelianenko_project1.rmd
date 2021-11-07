@@ -1,0 +1,198 @@
+---
+title: "R project 1 - Olympic games"
+author: "Vera Emelianenko"
+date: "7/11/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+
+## Package Loading ## 
+# for each package, check if it's installed and if not, install it
+
+load_packages <- function(package_name)
+  {
+    if (!require(package_name, character.only = TRUE))
+    {
+      install.packages(package_name)
+      library(package_name, character.only = TRUE)
+    }
+    else
+    {
+      library(package_name, character.only = TRUE)
+    }
+        
+  }
+
+
+Packages = c('dplyr', 'data.table', 'ggplot2', 'pastecs',  'magrittr' ) 
+invisible(lapply(Packages, load_packages))
+
+
+# Setup knitr defaults with standard formatting changes
+knitr::opts_chunk$set(
+	echo = T,
+	message = F,
+	eval = T,
+	fig.show = "markup",
+	include = T,
+	warning = F,
+	results = "markup",
+	tidy = T             
+)
+
+## Empty workspace ##
+rm(list=ls())
+
+```
+
+# Data loading
+
+
+```{r loading function}
+data_folder = "../data" # change this if your data are stored in a different place!
+
+
+# function to load the data
+load_csv_data_from_files <- function(data_folder, extension) {
+  data_to_read = list.files( 
+    path = data_folder, 
+    pattern = paste ("\\.", extension, "$", sep = ""),
+    recursive = F,
+    full.names = T)
+  
+  data_frame <- sapply(                   
+      data_to_read,              
+      data.table::fread,     # read all files listed indata_to_read
+      simplify = FALSE) %>% 
+    data.table::rbindlist(    # bind them all together   
+    use.names = TRUE,      
+    idcol = "FileName")   # save filename in a separate column 
+  return(data_frame)
+}
+
+games_df <- load_csv_data_from_files(data_folder, 'csv')
+
+```
+
+# Data description 
+
+
+```{r structure of the dataframe}
+str(games_df)
+```
+
+The data consists of 271106 observations of 16 variables plus file extension (from features_description):
+
+ * ID – Unique number for each athlete, int
+ 
+ * Name – Athlete's name, chr
+ 
+ * Sex – M or F, chr, should be changed to factor
+ 
+ * Age – Integer
+ 
+ * Height – In centimeters, int
+ 
+ * Weight – In kilograms, numeric
+ 
+ * Team – Team name, chr
+ 
+ * NOC – National Olympic Committee 3-letter code, chr
+ 
+ * Games – Year and season, chr, probably should be separated into 2 columns or deleted since we already have this information in the next 2 columns
+ 
+ * Year – Integer
+ 
+ * Season – Summer or Winter
+ 
+ * City – Host city, chr
+ 
+ * Sport – Sport, chr
+ 
+ * Event – Event, chr 
+ 
+ * Medal – Gold, Silver, Bronze, or NA, should be changed to factor
+
+I am going to change some variables to factors and correct errors with 'sex' variable wich is mistakenly set to 'G' in two cases. Data also have a lot of NAs, but I am going leave it right now not to loose too much information. 
+
+```{r prettify the data}
+
+games_df$Sex %>% unique () 
+games_df %>% dplyr::filter(Sex=='G') # check that only men are present to replace 'G' to 'M'
+games_df %<>% dplyr::mutate(Sex = ifelse(Sex == 'G', "M", Sex))
+
+games_df  %<>% 
+  dplyr::mutate(Medal = ifelse(is.na(Medal), "no_medal", Medal)) %>% 
+  dplyr::mutate_at(
+    vars(c(Medal, Sex)),      # vars = columns/variables you want to run a function on
+    list(factor))%>%
+  dplyr::select(-Games)
+
+str(games_df)
+```
+# Tasks 
+### Task3 
+
+The youngest female (girl) in 1992 was `r games_df %>% dplyr::filter(Year==1992) %>% tidyr::drop_na() %>% dplyr::group_by(Sex) %>%   dplyr::summarise(min_age = min(Age)) %>% dplyr::filter(Sex=='F') %>% .$min_age` years old and the youngest male (boy) was `r games_df %>% dplyr::filter(Year==1992) %>% tidyr::drop_na() %>% dplyr::group_by(Sex) %>%   dplyr::summarise(min_age = min(Age)) %>% dplyr::filter(Sex=='M') %>% .$min_age` years old. 
+```{r task 3}
+games_df %>%
+  dplyr::filter(Year==1992) %>% 
+  tidyr::drop_na()%>%
+  dplyr::group_by(Sex) %>% 
+  dplyr::summarise(min_age = min(Age))
+```
+
+### Task4 
+
+Mean height is `r games_df %>%   dplyr::filter(!is.na(Height))%>%  dplyr::group_by(Sex) %>%   dplyr::summarise(mean_height = mean(Height), standard_deviation_Height = sd(Height)) %>% dplyr::filter(Sex=='M') %>% .$mean_height` centimeters for men (standard deviation is `r games_df %>%   dplyr::filter(!is.na(Height))%>%  dplyr::group_by(Sex) %>%   dplyr::summarise(mean_height = mean(Height), standard_deviation_Height = sd(Height)) %>% dplyr::filter(Sex=='M') %>% .$standard_deviation_Height`) and `r games_df %>%   dplyr::filter(!is.na(Height))%>%  dplyr::group_by(Sex) %>%   dplyr::summarise(mean_height = mean(Height), standard_deviation_Height = sd(Height)) %>% dplyr::filter(Sex=='F') %>% .$mean_height` centimeters for women (standard deviation is `r games_df %>%   dplyr::filter(!is.na(Height))%>%  dplyr::group_by(Sex) %>%   dplyr::summarise(mean_height = mean(Height), standard_deviation_Height = sd(Height)) %>% dplyr::filter(Sex=='F') %>% .$standard_deviation_Height`)
+
+```{r task4}
+games_df %>% 
+  dplyr::filter(!is.na(Height))%>%
+  dplyr::group_by(Sex) %>% 
+  dplyr::summarise(mean_height = mean(Height), 
+                   standard_deviation_Height = sd(Height))
+  
+```
+
+### Task5
+
+Mean height and standard deviation of height for women tennis players in 2000 is `r games_df %>%  dplyr::filter(Year==2000, Sex == 'F', Sport == 'Tennis', !is.na(Height)) %>%  dplyr::summarise(mean_height = mean(Height) %>% round(digits = 1),                    standard_deviation_Height = sd(Height) %>% round(digits = 1))%>% .$mean_height` centimeters and `r games_df %>%  dplyr::filter(Year==2000, Sex == 'F', Sport == 'Tennis', !is.na(Height)) %>%  dplyr::summarise(mean_height = mean(Height) %>% round(digits = 1),                    standard_deviation_Height = sd(Height) %>% round(digits = 1))%>% .$standard_deviation_Height`: 
+
+```{r task5}
+games_df %>% 
+  dplyr::filter(Year==2000, Sex == 'F', Sport == 'Tennis', !is.na(Height)) %>%
+  dplyr::summarise(mean_height = mean(Height) %>% round(digits = 1), 
+                   standard_deviation_Height = sd(Height) %>% round(digits = 1))
+  
+```
+### Task6
+
+The heaviest athlete in 2006 was a `r games_df %>% dplyr::filter(Year==2006, !is.na(Weight)) %>% dplyr::filter(Weight == max(Weight)) %>% .$Sport` player: 
+
+```{r task6}
+games_df %>% 
+  dplyr::filter(Year==2006, !is.na(Weight)) %>%
+  dplyr::filter(Weight == max(Weight)) %>% .$Sport
+  
+```
+
+### Task7
+
+The number of medals won by women since 1980 to 2010 is `r games_df %>% dplyr::filter(Year>=1980 & Year <= 2010, Sex == 'F', Medal == 'Gold') %>% nrow()`:  
+
+```{r task7}
+games_df %>% 
+  dplyr::filter(Year>=1980 & Year <= 2010, Sex == 'F', Medal == 'Gold') %>% nrow()
+
+```
+### Task8
+
+John Aalberg participated in `r games_df %>% dplyr::filter(Name == 'John Aalberg') %>% dplyr::group_by(Year) %>% dplyr::summarize(number_of_sports = n()) %>% nrows()` Olympic games: 
+```{r task8}
+games_df %>% 
+  dplyr::filter(Name == 'John Aalberg') %>% dplyr::group_by(Year) %>% dplyr::summarize(number_of_sports = n())
+```

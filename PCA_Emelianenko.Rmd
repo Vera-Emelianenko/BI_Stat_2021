@@ -1,0 +1,157 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+
+## Package Loading ## 
+# for each package, check if it's installed and if not, install it
+
+load_packages <- function(package_name)
+  {
+    if (!require(package_name, character.only = TRUE))
+    {
+      install.packages(package_name)
+      library(package_name, character.only = TRUE)
+    }
+    else
+    {
+      library(package_name, character.only = TRUE)
+    }
+        
+  }
+
+
+Packages = c('dplyr', 'data.table', 'magrittr', 'caret', 'pastecs', 'vegan', 'kernlab', 'pls', 'factoextra') 
+invisible(lapply(Packages, load_packages))
+
+
+# Setup knitr defaults with standard formatting changes
+knitr::opts_chunk$set(
+	echo = T,
+	message = F,
+	eval = T,
+	fig.show = "markup",
+	include = T,
+	warning = F,
+	results = "markup",
+	tidy = T             
+)
+
+## Empty workspace ##
+rm(list=ls())
+```
+```{r}
+
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+# The following initializes usage of Bioc devel
+#BiocManager::install(version=3.12)
+
+#BiocManager::install("M3C")
+#library ("M3C")
+```
+
+Read the data and unite them in one dataset
+```{r data loading}
+train_data <- data.table::fread('train.csv') #21,263 rows, 82 cols
+unique_m_data <- data.table::fread('unique_m.csv')  %>% #21,263 rows, 88 cols
+  dplyr::select(-critical_temp) #21,263 rows, 87 cols
+super_conductors_df <- cbind (train_data, unique_m_data) %>% 
+  dplyr::select(-material) #21,263 rows, 168 cols
+```
+
+We want to predict critical_temp using all the other variables (or some of them). 
+
+Now we will split the data in two halfs to get train data and test data. Also, we will delete the columns that don't have any information (elements not present in any of the compiunds). 
+
+```{r split data}
+super_conductors_df %<>% dplyr::mutate(id = row_number()) %>%
+  dplyr::select(where(is.numeric)) %>% 
+  dplyr::select(where(~max(.) != 0))  #160 cols
+train <- super_conductors_df %>% dplyr::slice_sample(prop = 0.5)
+test  <- dplyr::anti_join(super_conductors_df, train, by = 'id') # idea about how to do this and about anti-join from https://stackoverflow.com/questions/17200114/how-to-split-data-into-training-testing-sets-using-sample-function 
+
+```
+
+We will standardize the train data and the test data according to the train data (all but the critical_temp column). 
+
+```{r standartization}
+# caret function taken from https://stackoverflow.com/questions/51685341/r-how-to-normalize-one-dataframe-test-set-given-the-values-of-a-different-dat 
+train_stats <- caret::preProcess(train %>% dplyr::select(-critical_temp), method = "scale")
+train_n <- predict(train_stats, train %>% dplyr::select(-critical_temp)) %>% cbind(.,  train %>% dplyr::select(critical_temp))
+train_n %>% pastecs::stat.desc() 
+test_n <- predict (train_stats, test%>% dplyr::select(-critical_temp))%>% cbind(.,  test %>% dplyr::select(critical_temp))
+test_n %>% pastecs::stat.desc() # some minimal values are less than zero 
+# that's because we were using train data for standartization
+```
+
+Now we will build linear model that uses all the features we have and predicts the critical temperature 
+
+```{r lm1}
+model1train <- lm(critical_temp ~ ., data = train_n)
+summary(model1train)
+par(mfrow = c(2,2))
+plot(model1train)
+
+# the next part is taken from https://datascienceplus.com/how-to-apply-linear-regression-in-r/
+pred1 <- predict(model1train, newdata = test_n)
+rmse <- sqrt(sum(pred1 - test_n$critical_temp)^2)/length(test_n$critical_temp)
+c(RMSE = rmse, R2=summary(model1train)$r.squared)
+par(mfrow=c(1,1))
+plot(test_n$critical_temp, pred1)
+
+```
+
+Adjusted R-squared is >0.75, so the model is not extremely bad. But we can see that some predictors are not significant. 
+
+We can try using PCA on the test data and transform the train data later. 
+
+
+```{r pca}
+train_pca <- vegan::rda(train_n[, -1], scale = TRUE)
+head(summary(train_pca))
+vegan::scores(train_pca, display = "species", choices = c(1, 2, 3, 4, 5), scaling = 0)
+# trying to plot some plots from lecture 
+pca_summary <- summary(train_pca)
+pca_result <- as.data.frame(pca_summary$cont)
+plot_data <- as.data.frame(t(pca_result[c("Proportion Explained"),]))
+plot_data$component <- rownames(plot_data)
+
+ggplot(plot_data, aes( component, `Proportion Explained`)) + geom_bar(stat = "identity") + theme_bw()
+
+screeplot(train_pca, type = "lines", bstick = TRUE) # I would say first 5 components are the most important
+```
+Now we can try to apply linear model to the transformed data. I didn't know how to do it in vegan so tried pcr and prcomp functions. 
+
+```{r pca prcomp}
+train_pca_result = prcomp(train_n[, -1])
+train_pc_result5 <- train_pca_result$x[,1:5] %>% as.data.frame()%>%cbind(train_n %>% dplyr::select(critical_temp))
+test_pc_result5 <- predict(train_pca_result, newdata = test_n)[,1:5] %>% as.data.frame()%>%cbind(test_n %>% dplyr::select(critical_temp))
+```
+
+```{r pca lm prediction}
+model2train <- lm(critical_temp ~ ., data = as.data.frame(train_pc_result5))
+summary(model2train)
+
+model2test <- lm(critical_temp ~ ., data = as.data.frame(test_pc_result5))
+summary(model2test)
+
+pred2 <- predict(model2train, newdata = test_pc_result5)
+rmse <- sqrt(sum(pred2 - test_n$critical_temp)^2)/length(test_n$critical_temp)
+c(RMSE = rmse, R2=summary(model2train)$r.squared)
+par(mfrow=c(1,1))
+plot(test_n$critical_temp, pred2)
+```
+R-squared is better than previously - that's either good or bad if I have some mistakes in the code...)
+
+
+```{r kernel pca}
+kpc <- kpca(~.,data=train_n[,-1],kernel="rbfdot", features=5)
+# this never ended  :( 
+```
+
+
+

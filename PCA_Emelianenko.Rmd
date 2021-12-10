@@ -1,6 +1,9 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -23,9 +26,10 @@ load_packages <- function(package_name)
   }
 
 
-Packages = c('dplyr', 'data.table', 'magrittr', 'caret', 'pastecs', 'vegan', 'kernlab', 'pls', 'factoextra') 
+Packages = c('dplyr', 'data.table', 'magrittr', 'caret', 'pastecs', 'vegan', 'kernlab', 'pls', 'factoextra', 'htmltools') 
 invisible(lapply(Packages, load_packages))
 
+library('htmltools')
 
 # Setup knitr defaults with standard formatting changes
 knitr::opts_chunk$set(
@@ -42,17 +46,7 @@ knitr::opts_chunk$set(
 ## Empty workspace ##
 rm(list=ls())
 ```
-```{r}
 
-#if (!requireNamespace("BiocManager", quietly = TRUE))
-    #install.packages("BiocManager")
-
-# The following initializes usage of Bioc devel
-#BiocManager::install(version=3.12)
-
-#BiocManager::install("M3C")
-#library ("M3C")
-```
 
 Read the data and unite them in one dataset
 ```{r data loading}
@@ -129,7 +123,7 @@ Now we can try to apply linear model to the transformed data. I didn't know how 
 ```{r pca prcomp}
 train_pca_result = prcomp(train_n[, -1])
 train_pc_result5 <- train_pca_result$x[,1:5] %>% as.data.frame()%>%cbind(train_n %>% dplyr::select(critical_temp))
-test_pc_result5 <- predict(train_pca_result, newdata = test_n)[,1:5] %>% as.data.frame()%>%cbind(test_n %>% dplyr::select(critical_temp))
+test_pc_result5 <- predict(train_pca_result, newdata = test_n[, -1])[,1:5] %>% as.data.frame()%>%cbind(test_n %>% dplyr::select(critical_temp))
 ```
 
 ```{r pca lm prediction}
@@ -149,7 +143,7 @@ R-squared is better than previously - that's either good or bad if I have some m
 
 
 ```{r kernel pca}
-kpc <- kpca(~.,data=train_n[,-1],kernel="rbfdot", features=5)
+#kpc <- kpca(~.,data=train_n[,-1],kernel="rbfdot", features=5)
 # this never ended  :( 
 ```
 
